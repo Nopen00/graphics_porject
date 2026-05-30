@@ -8,8 +8,11 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody))]
 public class GolfBallPhysics : MonoBehaviour
 {
-    public enum BallState { Idle, InFlight, Rolling }
+    public enum BallState  { Idle, InFlight, Rolling }
+    public enum AimPhase   { Aiming, Charging }
+
     public BallState State { get; private set; } = BallState.Idle;
+    public AimPhase  Phase { get; private set; } = AimPhase.Aiming;
 
     // ── 발사 설정 ─────────────────────────────────────────────────────────
     [Header("발사 설정")]
@@ -44,7 +47,8 @@ public class GolfBallPhysics : MonoBehaviour
     private bool    mCharging       = false;
     private float   mCurrentFriction;
 
-    public int StrokeCount { get; private set; } = 0;
+    public int   StrokeCount  { get; private set; } = 0;
+    public float CurrentPower { get; private set; } = 0f; // TrajectoryPredictor에서 읽어감
 
     // ─────────────────────────────────────────────────────────────────────
 
@@ -66,7 +70,12 @@ public class GolfBallPhysics : MonoBehaviour
     void Update()
     {
         if (!IsGolfMode()) return;
-        if (State == BallState.Idle) HandlePowerCharge();
+        if (State != BallState.Idle) return;
+
+        if (Phase == AimPhase.Aiming)
+            HandleAiming();
+        else
+            HandlePowerCharge();
     }
 
     void FixedUpdate()
@@ -77,6 +86,16 @@ public class GolfBallPhysics : MonoBehaviour
         {
             case BallState.InFlight: UpdateFlight();  break;
             case BallState.Rolling:  UpdateRolling(); break;
+        }
+    }
+
+    // ── 조준 단계: 스페이스로 방향 확정 ──────────────────────────────────
+    private void HandleAiming()
+    {
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            Phase = AimPhase.Charging;
+            if (mGolfCamera != null) mGolfCamera.LockForCharging();
         }
     }
 
@@ -93,6 +112,7 @@ public class GolfBallPhysics : MonoBehaviour
         {
             mCurrentPower += (mMaxPower / mPowerChargeTime) * Time.deltaTime;
             mCurrentPower  = Mathf.Min(mCurrentPower, mMaxPower);
+            CurrentPower   = mCurrentPower; // 외부 읽기용 동기화
 
             if (mPowerSlider != null)
                 mPowerSlider.value = mCurrentPower / mMaxPower;
@@ -169,15 +189,17 @@ public class GolfBallPhysics : MonoBehaviour
 
         // ── 반발 공식 ────────────────────────────────────────────────────
         // v' = v - (1 + e)(v · n̂)n̂
-        mVelocity    = mVelocity - (1f + mRestitution) * vDotN * normal;
+        mVelocity          -= (1f + mRestitution) * vDotN * normal;
         mRb.linearVelocity = mVelocity;
 
-        // Y 속도가 작으면 구르기 전환
-        if (Mathf.Abs(mVelocity.y) < 1.5f)
+        // 바닥 충돌 판정: normal.y > 0.7 이면 위를 향하는 표면 (바닥/경사면)
+        // 벽 충돌(normal.y ≈ 0)은 Rolling 전환 안 함 → 공중 고정 버그 방지
+        bool isFloor = normal.y > 0.7f;
+        if (isFloor && Mathf.Abs(mVelocity.y) < 1.5f)
         {
-            mVelocity.y  = 0f;
+            mVelocity.y        = 0f;
             mRb.linearVelocity = mVelocity;
-            State        = BallState.Rolling;
+            State              = BallState.Rolling;
         }
 
         UpdateFriction(col.gameObject.tag);
@@ -203,12 +225,14 @@ public class GolfBallPhysics : MonoBehaviour
 
     private void StopBall()
     {
-        mVelocity          = Vector3.zero;
-        mRb.linearVelocity = Vector3.zero;
+        mVelocity           = Vector3.zero;
+        mRb.linearVelocity  = Vector3.zero;
         mRb.angularVelocity = Vector3.zero;
-        mRb.useGravity     = true;
-        mRb.constraints    = RigidbodyConstraints.FreezeAll; // 위치·회전 완전 고정
-        State              = BallState.Idle;
+        mRb.useGravity      = true;
+        mRb.constraints     = RigidbodyConstraints.FreezeAll;
+        State               = BallState.Idle;
+        Phase               = AimPhase.Aiming;                // 조준 단계로 복귀
+        if (mGolfCamera != null) mGolfCamera.Unlock();        // 카메라 사이드뷰로 복귀
     }
 
     private bool IsGolfMode() =>
