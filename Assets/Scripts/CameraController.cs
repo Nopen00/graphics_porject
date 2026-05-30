@@ -11,43 +11,50 @@ public class CameraController : MonoBehaviour
     public float pitchSpeed = 80.0f;  // 위아래 회전 속도
 
     [Header("Pitch Limits")]
-    public float minPitch = 5.0f;    // 너무 땅 아래로 내려가지 않게 제한
-    public float maxPitch = 60.0f;   // 너무 머리 위로 올라가지 않게 제한
+    public float minPitch = 5.0f;
+    public float maxPitch = 60.0f;
 
-    private float currentYaw = 0.0f;
-    private float currentPitch = 20.0f; // 초기 위아래 각도
+    [Header("벽 충돌 설정")]
+    public float minDistance     = 0.5f;  // 벽에 붙었을 때 최소 거리
+    public float collisionRadius = 0.2f;  // SphereCast 구 반경
+
+    private float currentYaw   = 0.0f;
+    private float currentPitch = 20.0f;
+    private int   mCollisionMask;
 
     void Start()
     {
         if (target == null)
-        {
             Debug.LogError("카메라의 Target(공)을 지정해주세요!");
-        }
+
+        // GolfBall 레이어는 충돌 대상에서 제외 (공 자체에 막히지 않게)
+        mCollisionMask = ~LayerMask.GetMask("GolfBall", "Ignore Raycast");
     }
 
     void LateUpdate()
     {
         if (target == null) return;
 
-        // Horizontal: A/D, Left/Right | Vertical: W/S, Up/Down
-        float horizontalInput = Input.GetAxis("Horizontal"); 
-        float verticalInput = Input.GetAxis("Vertical");
+        float horizontalInput = Input.GetAxis("Horizontal");
+        float verticalInput   = Input.GetAxis("Vertical");
 
-        // 입력값에 따라 각도 누적
-        currentYaw += horizontalInput * yawSpeed * Time.deltaTime;
-        currentPitch -= verticalInput * pitchSpeed * Time.deltaTime; 
+        currentYaw   += horizontalInput * yawSpeed   * Time.deltaTime;
+        currentPitch -= verticalInput   * pitchSpeed * Time.deltaTime;
+        currentPitch  = Mathf.Clamp(currentPitch, minPitch, maxPitch);
 
-        // 위아래 회전각 제한 (카메라 뒤집힘 방지)
-        currentPitch = Mathf.Clamp(currentPitch, minPitch, maxPitch);
+        Quaternion rotation  = Quaternion.Euler(currentPitch, currentYaw, 0);
+        Vector3    direction = rotation * Vector3.back; // 공 기준 카메라 방향
 
-        // 구면 좌표계 변환 및 위치 계산
-        Quaternion rotation = Quaternion.Euler(currentPitch, currentYaw, 0);
-        Vector3 negDistance = new Vector3(0.0f, 0.0f, -distance);
-        Vector3 position = rotation * negDistance + target.position;
+        // SphereCast: 공 → 카메라 방향으로 장애물 감지
+        float actualDistance = distance;
+        if (Physics.SphereCast(target.position, collisionRadius, direction,
+                               out RaycastHit hit, distance, mCollisionMask))
+        {
+            actualDistance = Mathf.Max(hit.distance - collisionRadius, minDistance);
+        }
 
-        // 카메라에 값 적용
+        transform.position = rotation * new Vector3(0f, 0f, -actualDistance) + target.position;
         transform.rotation = rotation;
-        transform.position = position;
     }
 
     public Vector3 GetLookDirection()
@@ -55,5 +62,11 @@ public class CameraController : MonoBehaviour
         Vector3 forward = transform.forward;
         forward.y = 0;
         return forward.normalized;
+    }
+
+    // 발사각 반환: 카메라가 수평(낮은 pitch) → 높은 발사각, 아래를 볼수록 → 낮은 발사각
+    public float GetPitchAngle()
+    {
+        return minPitch + maxPitch - currentPitch;
     }
 }
