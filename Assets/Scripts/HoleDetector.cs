@@ -34,17 +34,18 @@ public class HoleDetector : MonoBehaviour
         GolfBallPhysics ball = other.GetComponent<GolfBallPhysics>();
         if (ball == null) return;
 
-        // 속도 체크: mMaxEntrySpeed 초과 시 홀 통과 (실제 골프처럼)
+        // 수평(XZ) 속도만 체크 — Y 낙하 속도는 제외 (경사 홀컵에서 오판 방지)
         Rigidbody rb = other.attachedRigidbody;
-        float speed = rb != null ? rb.linearVelocity.magnitude : 0f;
-        if (speed > mMaxEntrySpeed)
+        Vector3 vel = rb != null ? rb.linearVelocity : Vector3.zero;
+        float xzSpeed = new Vector2(vel.x, vel.z).magnitude;
+        if (xzSpeed > mMaxEntrySpeed)
         {
-            Debug.Log($"[HoleDetector] 속도 {speed:F1} m/s — 너무 빨라서 통과");
+            Debug.Log($"[HoleDetector] 수평 속도 {xzSpeed:F1} m/s — 너무 빨라서 통과");
             return;
         }
 
         mCompleted = true;
-        Debug.Log($"[HoleDetector] 홀 완료! {ball.StrokeCount} 타 (진입 속도 {speed:F1} m/s)");
+        Debug.Log($"[HoleDetector] 홀 완료! {ball.StrokeCount} 타 (진입 속도 {xzSpeed:F1} m/s)");
         BallInHole(ball);
     }
 

@@ -17,7 +17,7 @@ public class GolfBallPhysics : MonoBehaviour
     // ── 발사 설정 ─────────────────────────────────────────────────────────
     [Header("발사 설정")]
     [SerializeField] private float mMaxPower        = 30f;  // 최대 발사 속력 (m/s)
-    [SerializeField] private float mPowerChargeTime = 2.0f; // 최대 파워까지 충전 시간 (초)
+    [SerializeField] private float mOscillateSpeed  = 1.0f; // 파워바 왕복 속도 (1 = 1초에 0→Max→0)
 
     // ── 물리 상수 ─────────────────────────────────────────────────────────
     [Header("물리 상수")]
@@ -44,9 +44,9 @@ public class GolfBallPhysics : MonoBehaviour
     private Rigidbody        mRb;
     private CameraController mGolfCamera;
 
-    private Vector3 mVelocity       = Vector3.zero;
+    private Vector3 mVelocity        = Vector3.zero;
     private float   mCurrentPower   = 0f;
-    private bool    mCharging       = false;
+    private float   mOscillateTime  = 0f;  // 파워바 왕복 타이머
     private float   mCurrentFriction;
     private float   mStopTimer      = 0f;  // 정지 대기 타이머
     private Vector3 mStopCheckPos;         // 타이머 시작 시점 위치
@@ -104,33 +104,27 @@ public class GolfBallPhysics : MonoBehaviour
         }
     }
 
-    // ── 파워 충전 입력 ────────────────────────────────────────────────────
+    // ── 파워 자동 왕복 + 스페이스로 발사 ────────────────────────────────
     private void HandlePowerCharge()
     {
-        if (Input.GetMouseButtonDown(0))
-        {
-            mCharging     = true;
-            mCurrentPower = 0f;
-        }
+        // PingPong: 0 → mMaxPower → 0 → … 자동 왕복
+        // mOscillateSpeed = 1이면 1초에 0→Max 도달, 2면 0.5초에 도달
+        mOscillateTime += Time.deltaTime * mOscillateSpeed;
+        mCurrentPower   = Mathf.PingPong(mOscillateTime, 1f) * mMaxPower;
+        CurrentPower    = mCurrentPower;
 
-        if (mCharging && Input.GetMouseButton(0))
-        {
-            mCurrentPower += (mMaxPower / mPowerChargeTime) * Time.deltaTime;
-            mCurrentPower  = Mathf.Min(mCurrentPower, mMaxPower);
-            CurrentPower   = mCurrentPower; // 외부 읽기용 동기화
+        if (mPowerSlider != null)
+            mPowerSlider.value = mCurrentPower / mMaxPower;
 
-            if (mPowerSlider != null)
-                mPowerSlider.value = mCurrentPower / mMaxPower;
-        }
-
-        if (mCharging && Input.GetMouseButtonUp(0))
+        // 스페이스로 현재 파워값 확정 후 발사
+        if (Input.GetKeyDown(KeyCode.Space))
             Launch();
     }
 
     // ── 발사 ──────────────────────────────────────────────────────────────
     private void Launch()
     {
-        mCharging = false;
+        mOscillateTime = 0f;
         if (mPowerSlider != null) mPowerSlider.value = 0f;
         if (mGolfCamera == null) { Debug.LogWarning("GolfCamera 없음"); return; }
 
