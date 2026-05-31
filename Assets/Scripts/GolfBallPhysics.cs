@@ -206,24 +206,67 @@ public class GolfBallPhysics : MonoBehaviour
             State              = BallState.Rolling;
         }
 
-        UpdateFriction(col.gameObject.tag);
+        UpdateFriction(col.gameObject);
     }
 
     void OnCollisionStay(Collision col)
     {
         if (State == BallState.Rolling)
-            UpdateFriction(col.gameObject.tag);
+            UpdateFriction(col.gameObject);
     }
 
-    // ── 표면 태그로 마찰계수 결정 ──────────────────────────────────────────
-    private void UpdateFriction(string tag)
+    // ── 표면 마찰계수 결정: Terrain이면 텍스처 레이어, 아니면 태그 기반 ────
+    private void UpdateFriction(GameObject hit)
     {
-        mCurrentFriction = tag switch
+        if (hit.TryGetComponent<Terrain>(out _))
         {
-            "Fairway" => mFairwayFriction,
-            "Rough"   => mRoughFriction,
-            "Bunker"  => mBunkerFriction,
-            _         => mFairwayFriction,
+            mCurrentFriction = GetTerrainFriction(transform.position);
+        }
+        else
+        {
+            mCurrentFriction = hit.tag switch
+            {
+                "Fairway" => mFairwayFriction,
+                "Rough"   => mRoughFriction,
+                "Bunker"  => mBunkerFriction,
+                _         => mFairwayFriction,
+            };
+        }
+    }
+
+    // ── Terrain 위치의 텍스처 레이어로 마찰계수 결정 ─────────────────────
+    // TerrainLayer 순서: 0=Fairway, 1=Rough, 2=Bunker
+    private float GetTerrainFriction(Vector3 worldPos)
+    {
+        Terrain terrain = Terrain.activeTerrain;
+        if (terrain == null) return mFairwayFriction;
+
+        TerrainData data     = terrain.terrainData;
+        Vector3     localPos = worldPos - terrain.transform.position;
+
+        // 월드 좌표 → 알파맵 정규화 좌표 (0~1)
+        float normX = Mathf.Clamp01(localPos.x / data.size.x);
+        float normZ = Mathf.Clamp01(localPos.z / data.size.z);
+
+        int mapX = Mathf.Clamp(Mathf.FloorToInt(normX * data.alphamapWidth),  0, data.alphamapWidth  - 1);
+        int mapZ = Mathf.Clamp(Mathf.FloorToInt(normZ * data.alphamapHeight), 0, data.alphamapHeight - 1);
+
+        float[,,] maps = data.GetAlphamaps(mapX, mapZ, 1, 1);
+
+        // 가장 비중이 높은 레이어를 지배 표면으로 결정
+        int   dominant = 0;
+        float maxVal   = 0f;
+        for (int i = 0; i < maps.GetLength(2); i++)
+        {
+            if (maps[0, 0, i] > maxVal) { maxVal = maps[0, 0, i]; dominant = i; }
+        }
+
+        return dominant switch
+        {
+            0 => mFairwayFriction,
+            1 => mRoughFriction,
+            2 => mBunkerFriction,
+            _ => mFairwayFriction,
         };
     }
 
