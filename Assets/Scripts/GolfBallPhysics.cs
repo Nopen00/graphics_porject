@@ -9,7 +9,7 @@ using UnityEngine;
 public class GolfBallPhysics : MonoBehaviour
 {
     public enum BallState  { Idle, InFlight, Rolling }
-    public enum AimPhase   { Aiming, Charging }
+    public enum AimPhase   { Aiming, Charging, Impact }
 
     public BallState State { get; private set; } = BallState.Idle;
     public AimPhase  Phase { get; private set; } = AimPhase.Aiming;
@@ -18,6 +18,10 @@ public class GolfBallPhysics : MonoBehaviour
     [Header("발사 설정")]
     [SerializeField] private float mMaxPower        = 30f;  // 최대 발사 속력 (m/s)
     [SerializeField] private float mOscillateSpeed  = 1.0f; // 파워바 왕복 속도 (1 = 1초에 0→Max→0)
+
+    // ── 임팩트 설정 ───────────────────────────────────────────────────────
+    [Header("임팩트 설정")]
+    [SerializeField] private float mMaxImpactAngle = 15f; // 최대 방향 틀어짐 (도)
 
     // ── 물리 상수 ─────────────────────────────────────────────────────────
     [Header("물리 상수")]
@@ -37,8 +41,9 @@ public class GolfBallPhysics : MonoBehaviour
 
     // ── UI ────────────────────────────────────────────────────────────────
     [Header("UI 연결")]
-    [SerializeField] private UnityEngine.UI.Slider mPowerSlider; // 파워바 슬라이더
-    [SerializeField] private UnityEngine.UI.Text   mStrokeText;  // 스트로크 카운트 텍스트
+    [SerializeField] private UnityEngine.UI.Slider mPowerSlider;  // 파워바 슬라이더
+    [SerializeField] private UnityEngine.UI.Slider mImpactSlider; // 임팩트 게이지 슬라이더
+    [SerializeField] private UnityEngine.UI.Text   mStrokeText;   // 스트로크 카운트 텍스트
 
     // ── 내부 상태 ─────────────────────────────────────────────────────────
     private Rigidbody        mRb;
@@ -46,7 +51,9 @@ public class GolfBallPhysics : MonoBehaviour
 
     private Vector3 mVelocity        = Vector3.zero;
     private float   mCurrentPower   = 0f;
-    private float   mOscillateTime  = 0f;  // 파워바 왕복 타이머
+    private float   mOscillateTime  = 0f;   // 파워바 왕복 타이머
+    private float   mImpactGauge    = 0f;   // 임팩트 게이지 현재값 (0~100)
+    private float   mImpactAngle    = 0f;   // 발사 방향 오프셋 (도)
     private float   mCurrentFriction;
     private float   mStopTimer      = 0f;  // 정지 대기 타이머
     private Vector3 mStopCheckPos;         // 타이머 시작 시점 위치
@@ -77,10 +84,12 @@ public class GolfBallPhysics : MonoBehaviour
         if (!IsGolfMode()) return;
         if (State != BallState.Idle) return;
 
-        if (Phase == AimPhase.Aiming)
-            HandleAiming();
-        else
-            HandlePowerCharge();
+        switch (Phase)
+        {
+            case AimPhase.Aiming:   HandleAiming();      break;
+            case AimPhase.Charging: HandlePowerCharge(); break;
+            case AimPhase.Impact:   HandleImpact();      break;
+        }
     }
 
     void FixedUpdate()
@@ -104,11 +113,9 @@ public class GolfBallPhysics : MonoBehaviour
         }
     }
 
-    // ── 파워 자동 왕복 + 스페이스로 발사 ────────────────────────────────
+    // ── 파워 자동 왕복 + 스페이스로 파워 확정 ───────────────────────────
     private void HandlePowerCharge()
     {
-        // PingPong: 0 → mMaxPower → 0 → … 자동 왕복
-        // mOscillateSpeed = 1이면 1초에 0→Max 도달, 2면 0.5초에 도달
         mOscillateTime += Time.deltaTime * mOscillateSpeed;
         mCurrentPower   = Mathf.PingPong(mOscillateTime, 1f) * mMaxPower;
         CurrentPower    = mCurrentPower;
@@ -116,23 +123,89 @@ public class GolfBallPhysics : MonoBehaviour
         if (mPowerSlider != null)
             mPowerSlider.value = mCurrentPower / mMaxPower;
 
-        // 스페이스로 현재 파워값 확정 후 발사
         if (Input.GetKeyDown(KeyCode.Space))
+        {
+            // 파워 확정 → 임팩트 단계로 전환
+            float powerPct  = mCurrentPower / mMaxPower * 100f; // 0~100
+            mImpactGauge    = powerPct;
+            mOscillateTime  = 0f;
+            if (mPowerSlider != null) mPowerSlider.value = 0f;
+            Phase = AimPhase.Impact;
+        }
+    }
+
+    // ── 임팩트 게이지 하강 + 스페이스로 임팩트 확정 ─────────────────────
+    private void HandleImpact()
+    {
+        // 파워 게이지와 동일한 속도로 하강 (100 → 0)
+        mImpactGauge -= Time.deltaTime * mOscillateSpeed * 100f;
+        mImpactGauge  = Mathf.Max(0f, mImpactGauge);
+
+        if (mImpactSlider != null)
+            mImpactSlider.value = mImpactGauge / 100f;
+
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            // 게이지 절대값이 곧 zone — 9 초과면 유효 윈도우 전 → 헛스윙
+            if (mImpactGauge > 9f)
+            {
+                Debug.Log($"[임팩트] 헛스윙 — 너무 일찍 (게이지 {mImpactGauge:F1})");
+                MissSwing();
+                return;
+            }
+
+            mImpactAngle = CalculateImpactAngle(mImpactGauge);
+            Debug.Log($"[임팩트] zone {mImpactGauge:F1} → 각도 오프셋 {mImpactAngle:F1}°");
             Launch();
+        }
+
+        // 게이지 0 도달 → 헛스윙
+        if (mImpactGauge <= 0f)
+        {
+            Debug.Log("[임팩트] 헛스윙 — 너무 늦게");
+            MissSwing();
+        }
+    }
+
+    // ── 임팩트 존 → 각도 오프셋 계산 ─────────────────────────────────────
+    // zone 0~3: 오른쪽(+), 4~6: 중앙(0), 6~9: 왼쪽(-)
+    private float CalculateImpactAngle(float zone)
+    {
+        if (zone < 4f)
+            return Mathf.Lerp(mMaxImpactAngle, 0f, zone / 4f);   // 0→+15, 4→0
+        else if (zone <= 6f)
+            return 0f;
+        else
+            return Mathf.Lerp(0f, -mMaxImpactAngle, (zone - 6f) / 3f); // 6→0, 9→-15
+    }
+
+    // ── 헛스윙: 조준 단계로 복귀 ─────────────────────────────────────────
+    private void MissSwing()
+    {
+        mOscillateTime = 0f;
+        mImpactGauge   = 0f;
+        mImpactAngle   = 0f;
+        if (mPowerSlider  != null) mPowerSlider.value  = 0f;
+        if (mImpactSlider != null) mImpactSlider.value = 0f;
+        Phase = AimPhase.Aiming;
+        if (mGolfCamera != null) mGolfCamera.Unlock();
     }
 
     // ── 발사 ──────────────────────────────────────────────────────────────
     private void Launch()
     {
         mOscillateTime = 0f;
-        if (mPowerSlider != null) mPowerSlider.value = 0f;
+        mImpactAngle   = 0f;
+        if (mPowerSlider  != null) mPowerSlider.value  = 0f;
+        if (mImpactSlider != null) mImpactSlider.value = 0f;
         if (mGolfCamera == null) { Debug.LogWarning("GolfCamera 없음"); return; }
 
         StrokeCount++;
         UpdateStrokeUI();
 
-        // 수평 방향: 카메라 aim 방향 (XZ 평면)
-        Vector3 horizontalDir = mGolfCamera.GetLookDirection();
+        // 수평 방향: 카메라 aim 방향 + 임팩트 각도 오프셋 적용
+        // horizontalDir' = Rotate(horizontalDir, mImpactAngle, Y축)
+        Vector3 horizontalDir = Quaternion.Euler(0f, mImpactAngle, 0f) * mGolfCamera.GetLookDirection();
 
         // 발사각: 카메라 피치 각도 (도 → 라디안)
         float pitchRad = mGolfCamera.GetPitchAngle() * Mathf.Deg2Rad;
@@ -310,6 +383,9 @@ public class GolfBallPhysics : MonoBehaviour
     private void StopBall()
     {
         mStopTimer          = 0f;
+        mImpactGauge        = 0f;
+        mImpactAngle        = 0f;
+        if (mImpactSlider != null) mImpactSlider.value = 0f;
         mVelocity           = Vector3.zero;
         mRb.linearVelocity  = Vector3.zero;
         mRb.angularVelocity = Vector3.zero;
