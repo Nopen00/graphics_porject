@@ -37,6 +37,7 @@ public class GolfBallPhysics : MonoBehaviour
     // ── UI ────────────────────────────────────────────────────────────────
     [Header("UI 연결")]
     [SerializeField] private UnityEngine.UI.Slider mPowerSlider; // 파워바 슬라이더
+    [SerializeField] private UnityEngine.UI.Text   mStrokeText;  // 스트로크 카운트 텍스트
 
     // ── 내부 상태 ─────────────────────────────────────────────────────────
     private Rigidbody        mRb;
@@ -64,6 +65,7 @@ public class GolfBallPhysics : MonoBehaviour
         mCurrentFriction = mFairwayFriction;
 
         if (mPowerSlider != null) mPowerSlider.value = 0f;
+        UpdateStrokeUI();
     }
 
     // 입력은 Update, 물리는 FixedUpdate에서 처리
@@ -130,6 +132,7 @@ public class GolfBallPhysics : MonoBehaviour
         if (mGolfCamera == null) { Debug.LogWarning("GolfCamera 없음"); return; }
 
         StrokeCount++;
+        UpdateStrokeUI();
 
         // 수평 방향: 카메라 aim 방향 (XZ 평면)
         Vector3 horizontalDir = mGolfCamera.GetLookDirection();
@@ -223,6 +226,13 @@ public class GolfBallPhysics : MonoBehaviour
         };
     }
 
+    // HoleDetector에서 홀 완료 시 호출 — 공을 홀컵 위치에 고정
+    public void ForceStop(Vector3 position)
+    {
+        transform.position = position;
+        StopBall();
+    }
+
     private void StopBall()
     {
         mVelocity           = Vector3.zero;
@@ -233,6 +243,12 @@ public class GolfBallPhysics : MonoBehaviour
         State               = BallState.Idle;
         Phase               = AimPhase.Aiming;                // 조준 단계로 복귀
         if (mGolfCamera != null) mGolfCamera.Unlock();        // 카메라 사이드뷰로 복귀
+    }
+
+    private void UpdateStrokeUI()
+    {
+        if (mStrokeText != null)
+            mStrokeText.text = $"스트로크: {StrokeCount}";
     }
 
     private bool IsGolfMode() =>
