@@ -147,10 +147,11 @@ public class GolfBallPhysics : MonoBehaviour
         float vSpeed = mCurrentPower * Mathf.Sin(pitchRad);
 
         mRb.useGravity   = false;
-        mRb.constraints  = RigidbodyConstraints.None; // 이동 고정 해제
-        mVelocity    = horizontalDir * hSpeed + Vector3.up * vSpeed;
+        mRb.constraints  = RigidbodyConstraints.None;
+        mVelocity          = horizontalDir * hSpeed + Vector3.up * vSpeed;
         mRb.linearVelocity = mVelocity;
-        State        = BallState.InFlight;
+        State              = BallState.InFlight;
+        if (mGolfCamera != null) mGolfCamera.StartTracking();
     }
 
     // ── 비행 물리 (FixedUpdate) ───────────────────────────────────────────
