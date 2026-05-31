@@ -7,6 +7,9 @@ using UnityEngine;
 /// </summary>
 public class HoleDetector : MonoBehaviour
 {
+    [Header("홀 진입 설정")]
+    [SerializeField] private float mMaxEntrySpeed = 3f; // 이 속력 이하일 때만 홀 인정 (m/s)
+
     [Header("결과 UI (미연결 시 OnGUI로 자동 표시)")]
     [SerializeField] private GameObject      mResultPanel;
     [SerializeField] private UnityEngine.UI.Text mResultText;
@@ -28,12 +31,20 @@ public class HoleDetector : MonoBehaviour
     {
         if (mCompleted) return;
 
-        // 태그 대신 컴포넌트로 공 식별 — 태그 설정 안 해도 작동
         GolfBallPhysics ball = other.GetComponent<GolfBallPhysics>();
         if (ball == null) return;
 
+        // 속도 체크: mMaxEntrySpeed 초과 시 홀 통과 (실제 골프처럼)
+        Rigidbody rb = other.attachedRigidbody;
+        float speed = rb != null ? rb.linearVelocity.magnitude : 0f;
+        if (speed > mMaxEntrySpeed)
+        {
+            Debug.Log($"[HoleDetector] 속도 {speed:F1} m/s — 너무 빨라서 통과");
+            return;
+        }
+
         mCompleted = true;
-        Debug.Log($"[HoleDetector] 홀 완료! {ball.StrokeCount} 타");
+        Debug.Log($"[HoleDetector] 홀 완료! {ball.StrokeCount} 타 (진입 속도 {speed:F1} m/s)");
         BallInHole(ball);
     }
 

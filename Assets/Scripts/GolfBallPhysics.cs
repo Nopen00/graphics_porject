@@ -22,7 +22,8 @@ public class GolfBallPhysics : MonoBehaviour
     // ── 물리 상수 ─────────────────────────────────────────────────────────
     [Header("물리 상수")]
     [SerializeField] private float mRestitution   = 0.6f;  // 반발계수 e (0=완전비탄성, 1=완전탄성)
-    [SerializeField] private float mStopThreshold = 0.25f; // 이 속력 이하면 정지로 판정 (m/s)
+    [SerializeField] private float mStopThreshold    = 0.25f; // 이 속력 이하면 정지로 판정 (m/s)
+    [SerializeField] private float mStopMoveLimit    = 1.0f;  // 정지 대기 중 이 거리 이상 움직이면 타이머 리셋 (m)
 
     // ── 표면 마찰계수 μ ────────────────────────────────────────────────────
     [Header("표면 마찰계수 (μ) — 태그: Fairway / Rough / Bunker")]
@@ -47,6 +48,8 @@ public class GolfBallPhysics : MonoBehaviour
     private float   mCurrentPower   = 0f;
     private bool    mCharging       = false;
     private float   mCurrentFriction;
+    private float   mStopTimer      = 0f;  // 정지 대기 타이머
+    private Vector3 mStopCheckPos;         // 타이머 시작 시점 위치
 
     public int   StrokeCount  { get; private set; } = 0;
     public float CurrentPower { get; private set; } = 0f; // TrajectoryPredictor에서 읽어감
@@ -165,18 +168,50 @@ public class GolfBallPhysics : MonoBehaviour
     // ── 구르기 물리 (FixedUpdate) ─────────────────────────────────────────
     private void UpdateRolling()
     {
-        float speed = mVelocity.magnitude;
+        float xzSpeed = new Vector2(mVelocity.x, mVelocity.z).magnitude;
 
-        if (speed < mStopThreshold)
+        if (xzSpeed < mStopThreshold)
         {
-            StopBall();
-            return;
+            // 1차 신호: 속도 임계값 이하 → 타이머 시작
+            if (mStopTimer == 0f)
+                mStopCheckPos = transform.position;
+
+            mStopTimer += Time.fixedDeltaTime;
+
+            // 3초 동안 큰 움직임 없으면 완전 정지
+            float moved = Vector3.Distance(transform.position, mStopCheckPos);
+            if (mStopTimer >= 3f && moved < mStopMoveLimit)
+            {
+                StopBall();
+                return;
+            }
+        }
+        else
+        {
+            // 속도가 다시 올라오면 타이머 리셋 (언덕 굴러내리는 중)
+            mStopTimer = 0f;
         }
 
-        // 마찰 감속: a = μg,  v = v₀ - μg · Δt
-        float decel = mCurrentFriction * Mathf.Abs(Physics.gravity.y);
-        mVelocity -= mVelocity.normalized * decel * Time.fixedDeltaTime;
-        mVelocity.y  = 0f;          // 지면 위에서는 Y 고정
+        // ── 경사 가속도 계산 ──────────────────────────────────────────────
+        // 레이캐스트로 지면 법선 취득 → 중력을 법선 방향과 평행 방향으로 분해
+        // g_slope = g - (g · n̂)n̂  →  경사면을 따라 작용하는 중력 성분
+        Vector3 slopeAccelXZ = Vector3.zero;
+        if (Physics.Raycast(transform.position, Vector3.down, out RaycastHit slopeHit, 1.5f))
+        {
+            Vector3 n       = slopeHit.normal;
+            Vector3 gSlope  = Physics.gravity - Vector3.Dot(Physics.gravity, n) * n;
+            slopeAccelXZ    = new Vector3(gSlope.x, 0f, gSlope.z);
+        }
+
+        // 마찰 감속 + 경사 중력 가속도 합산
+        float   decel      = mCurrentFriction * Mathf.Abs(Physics.gravity.y);
+        Vector3 xzVelocity = new Vector3(mVelocity.x, 0f, mVelocity.z);
+        xzVelocity -= xzVelocity.normalized * decel      * Time.fixedDeltaTime;
+        xzVelocity += slopeAccelXZ                       * Time.fixedDeltaTime;
+
+        mVelocity.x        = xzVelocity.x;
+        mVelocity.z        = xzVelocity.z;
+        mVelocity.y        = mRb.linearVelocity.y;
         mRb.linearVelocity = mVelocity;
     }
 
@@ -203,6 +238,7 @@ public class GolfBallPhysics : MonoBehaviour
         {
             mVelocity.y        = 0f;
             mRb.linearVelocity = mVelocity;
+            mRb.useGravity     = true; // 경사면 굴러내리기 위해 중력 복원
             State              = BallState.Rolling;
         }
 
@@ -279,6 +315,7 @@ public class GolfBallPhysics : MonoBehaviour
 
     private void StopBall()
     {
+        mStopTimer          = 0f;
         mVelocity           = Vector3.zero;
         mRb.linearVelocity  = Vector3.zero;
         mRb.angularVelocity = Vector3.zero;
