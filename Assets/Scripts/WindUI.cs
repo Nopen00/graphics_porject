@@ -18,7 +18,7 @@ public class WindUI : MonoBehaviour
     [SerializeField] private float mMaxWindSpeed     = 6f;
 
     private GolfBallPhysics mBall;
-    private int             mLastStrokeCount = 0;
+    private bool            mWasIdle = true;
 
     void Start()
     {
@@ -30,15 +30,19 @@ public class WindUI : MonoBehaviour
     {
         if (mBall == null) return;
 
-        // 스트로크 카운트가 증가하면 발사된 것으로 판단
-        if (mBall.StrokeCount != mLastStrokeCount)
+        bool isIdle = mBall.State == GolfBallPhysics.BallState.Idle;
+
+        // 공이 날아가다가 멈춰서 Idle로 복귀한 순간에 바람 변경
+        // (발사 순간이 아니라 착지 후에 바꿔야 궤적과 실제 공이 같은 바람을 씀)
+        if (isIdle && !mWasIdle)
         {
-            mLastStrokeCount = mBall.StrokeCount;
             if (mRandomizePerShot)
                 RandomizeWind();
             else
                 RefreshUI();
         }
+
+        mWasIdle = isIdle;
     }
 
     private void RandomizeWind()

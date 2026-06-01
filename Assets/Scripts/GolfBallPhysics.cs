@@ -271,6 +271,7 @@ public class GolfBallPhysics : MonoBehaviour
         // CustomPhysicsEngine: v = v₀ + (g + windCoeff · wind) · Δt
         mVelocity    = CustomPhysicsEngine.CalculateNextVelocity(mVelocity, WindVector, Time.fixedDeltaTime);
         mRb.linearVelocity = mVelocity;
+        Debug.DrawRay(transform.position, WindVector * 0.5f, Color.cyan);
     }
 
     // ── 구르기 물리 (FixedUpdate) ─────────────────────────────────────────
