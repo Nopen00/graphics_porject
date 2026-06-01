@@ -31,9 +31,12 @@ public class GolfBallPhysics : MonoBehaviour
 
     // ── 표면 마찰계수 μ ────────────────────────────────────────────────────
     [Header("표면 마찰계수 (μ) — 태그: Fairway / Rough / Bunker")]
-    [SerializeField] private float mFairwayFriction = 0.25f;
-    [SerializeField] private float mRoughFriction   = 0.55f;
-    [SerializeField] private float mBunkerFriction  = 0.80f;
+    [SerializeField] private float mFairwayFriction = 0.50f;
+    [SerializeField] private float mRoughFriction   = 1.10f;
+    [SerializeField] private float mBunkerFriction  = 1.60f;
+
+    [Header("착지 굴림 억제 (0=즉시 멈춤, 1=감속 없음)")]
+    [SerializeField] private float mLandingRollDamping = 0.5f;
 
     // ── 바람 ──────────────────────────────────────────────────────────────
     [Header("바람 벡터 (GameManager에서 설정 가능)")]
@@ -43,6 +46,8 @@ public class GolfBallPhysics : MonoBehaviour
     [Header("UI 연결")]
     [SerializeField] private UnityEngine.UI.Slider mPowerSlider;  // 파워바 슬라이더
     [SerializeField] private UnityEngine.UI.Slider mImpactSlider; // 임팩트 게이지 슬라이더
+    [SerializeField] private GameObject            mPowerHandle;  // PowerSlider  > Handle Slide Area > Handle
+    [SerializeField] private GameObject            mImpactHandle; // ImpactSlider > Handle Slide Area > Handle
     [SerializeField] private UnityEngine.UI.Text   mStrokeText;   // 스트로크 카운트 텍스트
 
     // ── 내부 상태 ─────────────────────────────────────────────────────────
@@ -57,6 +62,7 @@ public class GolfBallPhysics : MonoBehaviour
     private float   mCurrentFriction;
     private float   mStopTimer      = 0f;  // 정지 대기 타이머
     private Vector3 mStopCheckPos;         // 타이머 시작 시점 위치
+    private Vector3 mLastShotPosition;     // OB 복귀용 발사 직전 위치
 
     public int   StrokeCount  { get; private set; } = 0;
     public float CurrentPower { get; private set; } = 0f; // TrajectoryPredictor에서 읽어감
@@ -74,7 +80,9 @@ public class GolfBallPhysics : MonoBehaviour
         mGolfCamera      = FindFirstObjectByType<CameraController>(FindObjectsInactive.Include);
         mCurrentFriction = mFairwayFriction;
 
-        if (mPowerSlider != null) mPowerSlider.value = 0f;
+        if (mPowerSlider  != null) mPowerSlider.value = 0f;
+        if (mPowerHandle  != null) mPowerHandle.SetActive(true);
+        if (mImpactHandle != null) mImpactHandle.SetActive(false);
         UpdateStrokeUI();
     }
 
@@ -125,11 +133,12 @@ public class GolfBallPhysics : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.Space))
         {
-            // 파워 확정 → 임팩트 단계로 전환
+            // 파워 확정 → 임팩트 단계로 전환 (파워 슬라이더는 각도 결정 전까지 고정)
             float powerPct  = mCurrentPower / mMaxPower * 100f; // 0~100
             mImpactGauge    = powerPct;
             mOscillateTime  = 0f;
-            if (mPowerSlider != null) mPowerSlider.value = 0f;
+            if (mPowerHandle  != null) mPowerHandle.SetActive(false);
+            if (mImpactHandle != null) mImpactHandle.SetActive(true);
             Phase = AimPhase.Impact;
         }
     }
@@ -179,6 +188,33 @@ public class GolfBallPhysics : MonoBehaviour
             return Mathf.Lerp(0f, -mMaxImpactAngle, (zone - 6f) / 3f); // 6→0, 9→-15
     }
 
+    // ── OB: 발사 위치로 복귀 + 벌타 1타 ─────────────────────────────────
+    public void OutOfBounds()
+    {
+        mVelocity          = Vector3.zero;
+        mRb.linearVelocity = Vector3.zero;
+        mRb.useGravity     = true;
+        mRb.constraints    = RigidbodyConstraints.FreezeRotation;
+        transform.position = mLastShotPosition;
+
+        mOscillateTime = 0f;
+        mImpactGauge   = 0f;
+        mImpactAngle   = 0f;
+        mStopTimer     = 0f;
+        if (mPowerSlider  != null) mPowerSlider.value  = 0f;
+        if (mImpactSlider != null) mImpactSlider.value = 0f;
+        if (mPowerHandle  != null) mPowerHandle.SetActive(true);
+        if (mImpactHandle != null) mImpactHandle.SetActive(false);
+
+        StrokeCount++;   // 벌타 1타
+        UpdateStrokeUI();
+
+        State = BallState.Idle;
+        Phase = AimPhase.Aiming;
+        if (mGolfCamera != null) mGolfCamera.Unlock();
+        Debug.Log($"[OB] 장외 — 벌타 적용, 발사 위치로 복귀 (총 {StrokeCount}타)");
+    }
+
     // ── 헛스윙: 조준 단계로 복귀 ─────────────────────────────────────────
     private void MissSwing()
     {
@@ -187,6 +223,8 @@ public class GolfBallPhysics : MonoBehaviour
         mImpactAngle   = 0f;
         if (mPowerSlider  != null) mPowerSlider.value  = 0f;
         if (mImpactSlider != null) mImpactSlider.value = 0f;
+        if (mPowerHandle  != null) mPowerHandle.SetActive(true);
+        if (mImpactHandle != null) mImpactHandle.SetActive(false);
         Phase = AimPhase.Aiming;
         if (mGolfCamera != null) mGolfCamera.Unlock();
     }
@@ -198,8 +236,11 @@ public class GolfBallPhysics : MonoBehaviour
         mImpactAngle   = 0f;
         if (mPowerSlider  != null) mPowerSlider.value  = 0f;
         if (mImpactSlider != null) mImpactSlider.value = 0f;
+        if (mPowerHandle  != null) mPowerHandle.SetActive(true);
+        if (mImpactHandle != null) mImpactHandle.SetActive(false);
         if (mGolfCamera == null) { Debug.LogWarning("GolfCamera 없음"); return; }
 
+        mLastShotPosition = transform.position;
         StrokeCount++;
         UpdateStrokeUI();
 
@@ -273,8 +314,10 @@ public class GolfBallPhysics : MonoBehaviour
         // 마찰 감속 + 경사 중력 가속도 합산
         float   decel      = mCurrentFriction * Mathf.Abs(Physics.gravity.y);
         Vector3 xzVelocity = new Vector3(mVelocity.x, 0f, mVelocity.z);
-        xzVelocity -= xzVelocity.normalized * decel      * Time.fixedDeltaTime;
-        xzVelocity += slopeAccelXZ                       * Time.fixedDeltaTime;
+        float   xzSpeedRoll = xzVelocity.magnitude;
+        float   decelDelta  = decel * Time.fixedDeltaTime;
+        xzVelocity  = xzSpeedRoll > decelDelta ? xzVelocity.normalized * (xzSpeedRoll - decelDelta) : Vector3.zero;
+        xzVelocity += slopeAccelXZ * Time.fixedDeltaTime;
 
         mVelocity.x        = xzVelocity.x;
         mVelocity.z        = xzVelocity.z;
@@ -303,6 +346,8 @@ public class GolfBallPhysics : MonoBehaviour
         bool isFloor = normal.y > 0.7f;
         if (isFloor && Mathf.Abs(mVelocity.y) < 1.5f)
         {
+            mVelocity.x        *= mLandingRollDamping;
+            mVelocity.z        *= mLandingRollDamping;
             mVelocity.y        = 0f;
             mRb.linearVelocity = mVelocity;
             mRb.useGravity     = true; // 경사면 굴러내리기 위해 중력 복원
