@@ -64,7 +64,7 @@ public class WindUI : MonoBehaviour
         // atan2(x, z) → 북쪽(0,1)이 위를 향하는 화살표 기준
         float angleDeg = Mathf.Atan2(wind.x, wind.z) * Mathf.Rad2Deg;
         if (mArrow != null)
-            mArrow.localRotation = Quaternion.Euler(0f, 0f, -angleDeg);
+            mArrow.localRotation = Quaternion.Euler(0f, 0f, -angleDeg + 90f);
 
         if (mSpeedText != null)
             mSpeedText.text = speed < 0.1f ? "바람 없음" : $"바람  {speed:F1} m/s";

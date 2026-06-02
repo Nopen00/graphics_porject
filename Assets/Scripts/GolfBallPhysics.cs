@@ -48,7 +48,6 @@ public class GolfBallPhysics : MonoBehaviour
     [SerializeField] private UnityEngine.UI.Slider mImpactSlider; // 임팩트 게이지 슬라이더
     [SerializeField] private GameObject            mPowerHandle;  // PowerSlider  > Handle Slide Area > Handle
     [SerializeField] private GameObject            mImpactHandle; // ImpactSlider > Handle Slide Area > Handle
-    [SerializeField] private UnityEngine.UI.Text   mStrokeText;   // 스트로크 카운트 텍스트
 
     // ── 내부 상태 ─────────────────────────────────────────────────────────
     private Rigidbody        mRb;
@@ -83,7 +82,6 @@ public class GolfBallPhysics : MonoBehaviour
         if (mPowerSlider  != null) mPowerSlider.value = 0f;
         if (mPowerHandle  != null) mPowerHandle.SetActive(true);
         if (mImpactHandle != null) mImpactHandle.SetActive(false);
-        UpdateStrokeUI();
     }
 
     // 입력은 Update, 물리는 FixedUpdate에서 처리
@@ -207,7 +205,6 @@ public class GolfBallPhysics : MonoBehaviour
         if (mImpactHandle != null) mImpactHandle.SetActive(false);
 
         StrokeCount++;   // 벌타 1타
-        UpdateStrokeUI();
 
         State = BallState.Idle;
         Phase = AimPhase.Aiming;
@@ -242,7 +239,6 @@ public class GolfBallPhysics : MonoBehaviour
 
         mLastShotPosition = transform.position;
         StrokeCount++;
-        UpdateStrokeUI();
 
         // 수평 방향: 카메라 aim 방향 + 임팩트 각도 오프셋 적용
         // horizontalDir' = Rotate(horizontalDir, mImpactAngle, Y축)
@@ -442,11 +438,6 @@ public class GolfBallPhysics : MonoBehaviour
         if (mGolfCamera != null) mGolfCamera.Unlock();        // 카메라 사이드뷰로 복귀
     }
 
-    private void UpdateStrokeUI()
-    {
-        if (mStrokeText != null)
-            mStrokeText.text = $"스트로크: {StrokeCount}";
-    }
 
     private bool IsGolfMode() =>
         GameManager.Instance != null &&
